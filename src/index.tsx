@@ -5,7 +5,15 @@ import { phoneValidationApp } from './routes/phone-validation'
 const app = new OpenAPIHono()
 
 app.get('/', (c) => {
-  return c.render(<h1>Hello!</h1>)
+  return c.json({
+    message: 'BDC Backend API',
+    version: '1.0.0',
+    endpoints: {
+      documentation: '/docs',
+      openapi: '/openapi.json',
+      phoneValidation: '/api/validate-phone',
+    },
+  })
 })
 
 // Mount phone validation routes

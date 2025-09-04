@@ -2,6 +2,7 @@ import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi'
 import { env } from 'hono/adapter'
 import { HTTPException } from 'hono/http-exception'
 import { cors } from 'hono/cors'
+import { rateLimiter } from '../middleware/rate-limiter'
 
 // HTTP Status constants for readability
 const HTTP_STATUS = {
@@ -73,14 +74,15 @@ phoneValidationApp.use(
   cors({
     origin: (origin, c) => {
       // Get environment context
-      const isDevelopment = c.env?.NODE_ENV === 'development' || !c.env?.NODE_ENV
-      
+      const isDevelopment =
+        c.env?.NODE_ENV === 'development' || !c.env?.NODE_ENV
+
       // Production origins - only biodentalcare.com
       const productionOrigins = [
         'https://biodentalcare.com',
         'https://www.biodentalcare.com',
       ]
-      
+
       // Development origins - include localhost
       const developmentOrigins = [
         ...productionOrigins,
@@ -88,12 +90,14 @@ phoneValidationApp.use(
         'http://localhost:5173',
         'http://localhost:8080',
       ]
-      
-      const allowedOrigins = isDevelopment ? developmentOrigins : productionOrigins
-      
+
+      const allowedOrigins = isDevelopment
+        ? developmentOrigins
+        : productionOrigins
+
       // If no origin (e.g., same-origin request), allow it
       if (!origin) return origin
-      
+
       // Return the origin if it's allowed, otherwise return null
       return allowedOrigins.includes(origin) ? origin : null
     },
@@ -101,6 +105,30 @@ phoneValidationApp.use(
     allowMethods: ['GET', 'OPTIONS'],
   })
 )
+
+// Apply rate limiting middleware
+phoneValidationApp.use('/api/validate-phone', async (c, next) => {
+  // Get environment context for different limits
+  const { NODE_ENV } = env<{ NODE_ENV?: string }>(c)
+  const isDevelopment = NODE_ENV === 'development' || !NODE_ENV
+
+  // Create rate limiter with environment-specific limits
+  const limiter = rateLimiter({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: isDevelopment ? 100 : 10, // 10 requests per 15 minutes in production
+    skipFailedRequests: true, // Don't count failed requests (4xx/5xx) against limit
+    keyGenerator: (c) => {
+      // Use CF-Connecting-IP for accurate client identification
+      const cfConnectingIP = c.req.header('CF-Connecting-IP')
+      const xForwardedFor = c.req.header('X-Forwarded-For')?.split(',')[0]
+      const xRealIP = c.req.header('X-Real-IP')
+
+      return cfConnectingIP || xForwardedFor || xRealIP || 'unknown'
+    },
+  })
+
+  return limiter(c, next)
+})
 
 phoneValidationApp.openapi(phoneValidationRoute, async (c) => {
   const { number, country_code } = c.req.valid('query')

@@ -1,7 +1,6 @@
-import { OpenAPIHono, createRoute, z } from '@hono/zod-openapi'
+import { createRoute, z } from '@hono/zod-openapi'
 import { env } from 'hono/adapter'
 import { HTTPException } from 'hono/http-exception'
-import { cors } from 'hono/cors'
 import { rateLimiter } from '../middleware/rate-limiter'
 import * as HttpStatusCodes from 'stoker/http-status-codes'
 import { jsonContent } from 'stoker/openapi/helpers'
@@ -80,7 +79,7 @@ const ErrorMessageSchema = z.object({
 })
 
 // OpenAPI route definition
-const phoneValidationRoute = createRoute({
+export const phoneValidationRoute = createRoute({
   method: 'get',
   path: '/api/validate-phone',
   request: {
@@ -118,51 +117,45 @@ const phoneValidationRoute = createRoute({
     'Validates a phone number using the Numverify service. All Numverify API parameters are supported.',
 })
 
-export const phoneValidationApp = new OpenAPIHono()
+// CORS configuration function
+export const getCorsConfig = () => ({
+  origin: (origin: string | undefined, c: any) => {
+    // Get environment context
+    const isDevelopment = c.env.ENVIRONMENT === 'development'
 
-// Apply CORS middleware to restrict access to biodentalcare.com only
-phoneValidationApp.use(
-  '/api/validate-phone',
-  cors({
-    origin: (origin, c) => {
-      // Get environment context
-      const isDevelopment =
-        c.env?.NODE_ENV === 'development' || !c.env?.NODE_ENV
+    // Production origins - only biodentalcare.com
+    const productionOrigins = [
+      'https://biodentalcare.com',
+      'https://www.biodentalcare.com',
+    ]
 
-      // Production origins - only biodentalcare.com
-      const productionOrigins = [
-        'https://biodentalcare.com',
-        'https://www.biodentalcare.com',
-      ]
+    // Development origins - include localhost
+    const developmentOrigins = [
+      ...productionOrigins,
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'http://localhost:8080',
+    ]
 
-      // Development origins - include localhost
-      const developmentOrigins = [
-        ...productionOrigins,
-        'http://localhost:3000',
-        'http://localhost:5173',
-        'http://localhost:8080',
-      ]
+    const allowedOrigins = isDevelopment
+      ? developmentOrigins
+      : productionOrigins
 
-      const allowedOrigins = isDevelopment
-        ? developmentOrigins
-        : productionOrigins
+    // If no origin (e.g., same-origin request), allow it
+    if (!origin) return origin
 
-      // If no origin (e.g., same-origin request), allow it
-      if (!origin) return origin
+    // Return the origin if it's allowed, otherwise return null
+    return allowedOrigins.includes(origin) ? origin : null
+  },
+  allowHeaders: ['Content-Type', 'Authorization'],
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+})
 
-      // Return the origin if it's allowed, otherwise return null
-      return allowedOrigins.includes(origin) ? origin : null
-    },
-    allowHeaders: ['Content-Type', 'Authorization'],
-    allowMethods: ['GET', 'OPTIONS'],
-  })
-)
-
-// Apply rate limiting middleware
-phoneValidationApp.use('/api/validate-phone', async (c, next) => {
+// Rate limiting middleware for phone validation
+export const phoneValidationRateLimit = async (c: any, next: any) => {
   // Get environment context for different limits
-  const { NODE_ENV } = env<{ NODE_ENV?: string }>(c)
-  const isDevelopment = NODE_ENV === 'development' || !NODE_ENV
+  const { ENVIRONMENT } = env<{ ENVIRONMENT: 'development' | 'staging' | 'production' }>(c)
+  const isDevelopment = ENVIRONMENT === 'development'
 
   // Create rate limiter with environment-specific limits
   const limiter = rateLimiter({
@@ -180,14 +173,15 @@ phoneValidationApp.use('/api/validate-phone', async (c, next) => {
   })
 
   return limiter(c, next)
-})
+}
 
 // Helper function to check if response is an error
 function isNumVerifyError(data: NumVerifyApiResponse): data is NumVerifyErrorResponse {
   return 'success' in data && data.success === false
 }
 
-phoneValidationApp.openapi(phoneValidationRoute, async (c) => {
+// Phone validation route handler
+export const phoneValidationHandler = async (c: any) => {
   const { number, country_code } = c.req.valid('query')
 
   // Get Numverify API key from environment
@@ -287,4 +281,4 @@ phoneValidationApp.openapi(phoneValidationRoute, async (c) => {
       message: 'Internal server error - unable to validate phone number',
     })
   }
-})
+}

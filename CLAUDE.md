@@ -9,10 +9,13 @@ This is a Cloudflare Worker backend built with Hono (web framework) and TypeScri
 ## Development Commands
 
 - `npm install` - Install dependencies
-- `npm run dev` - Start development server with hot reload using Vite
-- `npm run build` - Build for production
+- `npm run dev` - Start development server using Wrangler
+- `npm run build` - Build for production (includes type checking)
+- `npm run typecheck` - Run TypeScript type checking
 - `npm run preview` - Build and preview production build locally
-- `npm run deploy` - Build and deploy to Cloudflare Workers
+- `npm run deploy` - Build and deploy to development environment
+- `npm run deploy:staging` - Build and deploy to staging environment
+- `npm run deploy:production` - Build and deploy to production environment
 - `npm run cf-typegen` - Generate TypeScript types for Cloudflare bindings
 
 ## Architecture
@@ -28,10 +31,11 @@ This is a Cloudflare Worker backend built with Hono (web framework) and TypeScri
 ### Key Files
 
 - `src/index.tsx` - Main application entry point, defines routes using Hono
-- `src/renderer.tsx` - JSX renderer configuration for HTML document structure
+- `src/renderer.tsx` - JSX renderer configuration for HTML document structure  
 - `src/style.css` - Application styles
-- `wrangler.jsonc` - Cloudflare Workers configuration
+- `wrangler.toml` - Cloudflare Workers configuration with environment settings
 - `vite.config.ts` - Vite configuration with Cloudflare and SSR plugins
+- `worker-configuration.d.ts` - TypeScript bindings for Cloudflare environment variables
 
 ### Project Structure
 
@@ -47,17 +51,45 @@ public/
 
 ## Cloudflare Workers Integration
 
-When working with Cloudflare bindings (KV, D1, R2, etc.), use the generated types:
+### Environment Configuration
+
+The project uses Cloudflare Workers environments for different deployment stages:
+- **Development** (default): Local development with `wrangler dev`
+- **Staging**: `wrangler deploy --env staging`
+- **Production**: `wrangler deploy --env production`
+
+### Environment Detection
+
+Use `c.env.ENVIRONMENT` to detect the current environment in your Hono routes:
+
+```typescript
+const isDevelopment = c.env.ENVIRONMENT === 'development'
+```
+
+### TypeScript Bindings
+
+When working with Cloudflare bindings, use the generated types:
 
 ```typescript
 const app = new Hono<{ Bindings: CloudflareBindings }>()
 ```
 
-Run `npm run cf-typegen` after modifying `wrangler.jsonc` to regenerate binding types.
+Run `npm run cf-typegen` after modifying `wrangler.toml` to regenerate binding types.
 
 ## Development Notes
 
 - JSX components are rendered server-side using Hono's JSX renderer
 - CSS is loaded via the ViteClient component in the renderer
 - The build outputs to `dist/` for the client and `dist-server/` for the worker
-- Environment variables should be defined in `.dev.vars` for local development
+
+### Environment Variables
+
+- **Local Development**: Define variables in `.dev.vars` file
+- **Production**: Set secrets using `wrangler secret put` or Cloudflare dashboard
+- **Environment Detection**: Use `c.env.ENVIRONMENT` instead of `process.env.NODE_ENV`
+
+### Secret Management
+
+- Never commit `.dev.vars` files to git (already in .gitignore)
+- Use environment-specific files: `.dev.vars.staging`, `.dev.vars.production`
+- For sensitive data, use `wrangler secret put` command instead of plain variables

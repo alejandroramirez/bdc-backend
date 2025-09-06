@@ -1,8 +1,14 @@
 import { swaggerUI } from '@hono/swagger-ui'
 import { OpenAPIHono } from '@hono/zod-openapi'
-import { phoneValidationApp } from './routes/phone-validation'
+import { cors } from 'hono/cors'
+import { 
+  phoneValidationRoute, 
+  phoneValidationHandler, 
+  phoneValidationRateLimit,
+  getCorsConfig 
+} from './routes/phone-validation'
 
-const app = new OpenAPIHono()
+const app = new OpenAPIHono<{ Bindings: CloudflareBindings }>()
 
 app.get('/', (c) => {
   return c.json({
@@ -16,8 +22,14 @@ app.get('/', (c) => {
   })
 })
 
-// Mount phone validation routes
-app.route('/', phoneValidationApp)
+// Apply global CORS middleware
+app.use('*', cors(getCorsConfig()))
+
+// Apply rate limiting specifically to phone validation endpoint
+app.use('/api/validate-phone', phoneValidationRateLimit)
+
+// Mount phone validation route
+app.openapi(phoneValidationRoute, phoneValidationHandler)
 
 // Add OpenAPI documentation endpoint
 app.doc('/openapi.json', {

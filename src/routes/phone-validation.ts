@@ -3,25 +3,56 @@ import { env } from 'hono/adapter'
 import { HTTPException } from 'hono/http-exception'
 import { cors } from 'hono/cors'
 import { rateLimiter } from '../middleware/rate-limiter'
+import * as HttpStatusCodes from 'stoker/http-status-codes'
+import { jsonContent } from 'stoker/openapi/helpers'
+import type { StatusCode, ContentfulStatusCode } from 'hono/utils/http-status'
 
-// HTTP Status constants for readability
-const HTTP_STATUS = {
-  OK: 200,
-  BAD_REQUEST: 400,
-  UNAUTHORIZED: 401,
-  INTERNAL_SERVER_ERROR: 500,
-} as const
+// Using Stoker HTTP status codes for better Hono integration
+const {
+  OK,
+  BAD_REQUEST,
+  UNAUTHORIZED,
+  FORBIDDEN,
+  TOO_MANY_REQUESTS,
+  INTERNAL_SERVER_ERROR,
+} = HttpStatusCodes
 
-// Numverify API parameter schemas
+// NumVerify API Types and Schemas
+type NumVerifySuccessResponse = {
+  valid: boolean
+  number: string
+  local_format: string
+  international_format: string
+  country_prefix: string
+  country_code: string
+  country_name: string
+  location: string
+  carrier: string
+  line_type: string
+}
+
+type NumVerifyErrorResponse = {
+  success: false
+  error: {
+    code: number
+    type: string
+    info: string
+  }
+}
+
+type NumVerifyApiResponse = NumVerifySuccessResponse | NumVerifyErrorResponse
+
+// Request parameter schemas
 const NumverifyQuerySchema = z.object({
   number: z.string().describe('Phone number to validate (required)'),
   country_code: z
     .string()
-    .optional()
+    .length(2)
     .describe('2-letter country code (e.g. US, GB)'),
 })
 
-const NumverifyResponseSchema = z.object({
+// Zod schemas for validation and OpenAPI documentation
+const NumverifySuccessSchema = z.object({
   valid: z.boolean(),
   number: z.string(),
   local_format: z.string(),
@@ -34,13 +65,18 @@ const NumverifyResponseSchema = z.object({
   line_type: z.string(),
 })
 
-const ErrorResponseSchema = z.object({
+const NumverifyErrorSchema = z.object({
   success: z.literal(false),
   error: z.object({
     code: z.number(),
     type: z.string(),
     info: z.string(),
   }),
+})
+
+const ErrorMessageSchema = z.object({
+  message: z.string(),
+  cause: NumverifyErrorSchema.optional(),
 })
 
 // OpenAPI route definition
@@ -51,13 +87,29 @@ const phoneValidationRoute = createRoute({
     query: NumverifyQuerySchema,
   },
   responses: {
-    200: {
-      content: {
-        'application/json': {
-          schema: NumverifyResponseSchema,
-        },
-      },
-      description: 'Phone number validation successful',
+    [OK]: {
+      ...jsonContent(NumverifySuccessSchema, 'Phone number validation successful'),
+    },
+    [BAD_REQUEST]: {
+      ...jsonContent(ErrorMessageSchema, 'Invalid request or NumVerify API error'),
+    },
+    [UNAUTHORIZED]: {
+      ...jsonContent(
+        z.object({ message: z.string() }),
+        'Unauthorized - Invalid API key'
+      ),
+    },
+    [TOO_MANY_REQUESTS]: {
+      ...jsonContent(
+        z.object({ message: z.string() }),
+        'Rate limit exceeded'
+      ),
+    },
+    [INTERNAL_SERVER_ERROR]: {
+      ...jsonContent(
+        z.object({ message: z.string() }),
+        'Internal server error'
+      ),
     },
   },
   tags: ['Phone Validation'],
@@ -130,13 +182,18 @@ phoneValidationApp.use('/api/validate-phone', async (c, next) => {
   return limiter(c, next)
 })
 
+// Helper function to check if response is an error
+function isNumVerifyError(data: NumVerifyApiResponse): data is NumVerifyErrorResponse {
+  return 'success' in data && data.success === false
+}
+
 phoneValidationApp.openapi(phoneValidationRoute, async (c) => {
   const { number, country_code } = c.req.valid('query')
 
   // Get Numverify API key from environment
   const { NUMVERIFY_API_KEY } = env<{ NUMVERIFY_API_KEY: string }>(c)
   if (!NUMVERIFY_API_KEY) {
-    throw new HTTPException(HTTP_STATUS.INTERNAL_SERVER_ERROR, {
+    throw new HTTPException(INTERNAL_SERVER_ERROR as ContentfulStatusCode, {
       message: 'Numverify API key not configured',
     })
   }
@@ -145,44 +202,89 @@ phoneValidationApp.openapi(phoneValidationRoute, async (c) => {
   const url = new URL('http://apilayer.net/api/validate')
   url.searchParams.set('access_key', NUMVERIFY_API_KEY)
   url.searchParams.set('number', number)
-
-  if (country_code) {
-    url.searchParams.set('country_code', country_code)
-  }
+  url.searchParams.set('country_code', country_code)
 
   const numverifyUrl = url.toString()
 
   try {
-    // Call Numverify API
+    // Call NumVerify API
     const response = await fetch(numverifyUrl)
-    const data = await response.json()
-
+    
     if (!response.ok) {
-      const statusCode =
-        response.status === 401
-          ? HTTP_STATUS.UNAUTHORIZED
-          : HTTP_STATUS.BAD_REQUEST
-      throw new HTTPException(statusCode, {
-        message: 'Failed to validate phone number',
+      // Handle HTTP errors from NumVerify API
+      let errorMessage = 'Failed to validate phone number'
+      let statusCode = BAD_REQUEST
+      
+      if (response.status === 401) {
+        errorMessage = 'Invalid NumVerify API key'
+        statusCode = UNAUTHORIZED
+      } else if (response.status === 403) {
+        errorMessage = 'NumVerify API access forbidden'
+        statusCode = UNAUTHORIZED
+      } else if (response.status >= 500) {
+        errorMessage = 'NumVerify API service unavailable'
+        statusCode = INTERNAL_SERVER_ERROR
+      }
+      
+      throw new HTTPException(statusCode as ContentfulStatusCode, {
+        message: errorMessage,
+      })
+    }
+
+    const data: NumVerifyApiResponse = await response.json()
+
+    // Check if NumVerify returned an error response
+    if ('success' in data && data.success === false) {
+      // Map NumVerify error codes to appropriate HTTP status codes
+      let statusCode = BAD_REQUEST
+      let message = data.error.info || 'Phone number validation failed'
+      
+      // Handle specific NumVerify error codes
+      switch (data.error.code) {
+        case 101: // Invalid API key
+        case 102: // Inactive API key
+        case 103: // Invalid API function
+          statusCode = UNAUTHORIZED
+          message = 'API authentication failed'
+          break
+        case 210: // No phone number provided
+        case 211: // Invalid phone number
+        case 310: // Invalid country code
+          statusCode = BAD_REQUEST
+          message = data.error.info
+          break
+        case 601: // Monthly API limit exceeded
+        case 602: // Rate limit exceeded
+          statusCode = TOO_MANY_REQUESTS
+          message = 'API rate limit exceeded'
+          break
+        default:
+          message = data.error.info || 'Phone number validation failed'
+      }
+      
+      throw new HTTPException(statusCode as ContentfulStatusCode, {
+        message,
         cause: data,
       })
     }
 
-    // Check if Numverify returned an error
-    if (data.success === false) {
-      throw new HTTPException(HTTP_STATUS.BAD_REQUEST, {
-        message: 'Phone number validation failed',
-        cause: data,
+    // Type guard to ensure we have a success response
+    if (!('valid' in data)) {
+      throw new HTTPException(INTERNAL_SERVER_ERROR as ContentfulStatusCode, {
+        message: 'Unexpected response format from NumVerify API',
       })
     }
 
-    return c.json(data, HTTP_STATUS.OK)
+    return c.json(data, OK)
   } catch (error) {
     if (error instanceof HTTPException) {
       throw error
     }
-    throw new HTTPException(HTTP_STATUS.INTERNAL_SERVER_ERROR, {
-      message: 'Internal server error',
+    
+    // Handle network errors and other unexpected errors
+    console.error('NumVerify API error:', error)
+    throw new HTTPException(INTERNAL_SERVER_ERROR as ContentfulStatusCode, {
+      message: 'Internal server error - unable to validate phone number',
     })
   }
 })

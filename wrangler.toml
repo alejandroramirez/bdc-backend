@@ -4,15 +4,30 @@ main = "src/index.tsx"
 compatibility_date = "2024-08-03"
 
 # Development environment (default)
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+preview_id = "722c0cfc787a4571867b794758c05583"
+id = "722c0cfc787a4571867b794758c05583"
+
 [vars]
 ENVIRONMENT = "development"
 
 # Staging environment
 [env.staging]
+[[env.staging.kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+preview_id = "722c0cfc787a4571867b794758c05583"
+id = "722c0cfc787a4571867b794758c05583"
+
 [env.staging.vars]
 ENVIRONMENT = "staging"
 
 # Production environment  
 [env.production]
+[[env.production.kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+preview_id = "5eea2ed59a864c088256f7ea809a4c6e"
+id = "5eea2ed59a864c088256f7ea809a4c6e"
+
 [env.production.vars]
 ENVIRONMENT = "production"

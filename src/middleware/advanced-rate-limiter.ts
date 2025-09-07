@@ -67,7 +67,7 @@ export const createAdvancedRateLimiter = (environment: 'development' | 'staging'
 // Widget-aware rate limiter with enhanced security
 export const createWidgetSecureRateLimiter = (kvNamespace: KVNamespace, environment: 'development' | 'staging' | 'production') => {
   return rateLimiter({
-    windowMs: environment === 'development' ? 60 * 1000 : 15 * 60 * 1000, // 1 min dev, 15 min prod
+    windowMs: environment === 'development' ? 2 * 60 * 1000 : 15 * 60 * 1000, // 2 min dev, 15 min prod (minimum 60s buffer)
     limit: (c: Context) => {
       const referer = c.req.header('Referer') || ''
       const userAgent = c.req.header('User-Agent') || ''

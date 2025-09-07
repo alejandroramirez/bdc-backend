@@ -31,3 +31,6 @@ id = "5eea2ed59a864c088256f7ea809a4c6e"
 
 [env.production.vars]
 ENVIRONMENT = "production"
+
+[observability.logs]
+enabled = true

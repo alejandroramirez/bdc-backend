@@ -50,7 +50,12 @@ const NumverifyQuerySchema = z.object({
     .describe('2-letter country code (e.g. US, GB)'),
 })
 
-// Zod schemas for validation and OpenAPI documentation
+// Zod schemas for validation and OpenAPI documentation - simplified for API response
+const PhoneValidationResponseSchema = z.object({
+  valid: z.boolean(),
+})
+
+// Full NumVerify response schema for internal use and logging
 const NumverifySuccessSchema = z.object({
   valid: z.boolean(),
   number: z.string(),
@@ -87,7 +92,7 @@ export const phoneValidationRoute = createRoute({
   },
   responses: {
     [OK]: {
-      ...jsonContent(NumverifySuccessSchema, 'Phone number validation successful'),
+      ...jsonContent(PhoneValidationResponseSchema, 'Phone number validation successful'),
     },
     [BAD_REQUEST]: {
       ...jsonContent(ErrorMessageSchema, 'Invalid request or NumVerify API error'),
@@ -117,7 +122,7 @@ export const phoneValidationRoute = createRoute({
     'Validates a phone number using the Numverify service. All Numverify API parameters are supported.',
 })
 
-// CORS configuration function
+// CORS configuration function with error handling
 export const getCorsConfig = () => ({
   origin: (origin: string | undefined, c: any) => {
     // Get environment context
@@ -145,7 +150,7 @@ export const getCorsConfig = () => ({
     // If no origin (e.g., same-origin request), allow it
     if (!origin) return origin
 
-    // Return the origin if it's allowed, otherwise return null
+    // Return the origin if it's allowed, otherwise return null (CORS will handle the rejection)
     return allowedOrigins.includes(origin) ? origin : null
   },
   allowHeaders: ['Content-Type', 'Authorization'],
@@ -218,6 +223,9 @@ export const phoneValidationHandler = async (c: any) => {
 
     const data: NumVerifyApiResponse = await response.json()
 
+    // Log the complete NumVerify API response for internal tracking
+    console.log('NumVerify API Response:', JSON.stringify(data, null, 2))
+
     // Check if NumVerify returned an error response
     if ('success' in data && data.success === false) {
       // Map NumVerify error codes to appropriate HTTP status codes
@@ -260,7 +268,8 @@ export const phoneValidationHandler = async (c: any) => {
       })
     }
 
-    return c.json(data, OK)
+    // Return only the validation status to the client
+    return c.json({ valid: data.valid }, OK)
   } catch (error) {
     if (error instanceof HTTPException) {
       throw error

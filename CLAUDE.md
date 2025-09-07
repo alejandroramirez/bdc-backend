@@ -93,3 +93,35 @@ Run `npm run cf-typegen` after modifying `wrangler.toml` to regenerate binding t
 - Never commit `.dev.vars` files to git (already in .gitignore)
 - Use environment-specific files: `.dev.vars.staging`, `.dev.vars.production`
 - For sensitive data, use `wrangler secret put` command instead of plain variables
+
+## Git Commit Guidelines
+
+### Commit Message Style
+
+- **No attribution required**: Commits should not include Claude Code attribution or co-authored-by tags
+- **Task-based organization**: When multiple files are updated, organize commits by logical tasks rather than combining unrelated changes
+- **Clear, concise messages**: Use imperative mood (e.g., "Add rate limiting" not "Added rate limiting")
+
+### Examples
+
+**Good - Single task commit:**
+```
+Add advanced rate limiting with KV persistence
+
+- Install @hono-rate-limiter/cloudflare package
+- Configure WorkersKV store for rate limiting
+- Add widget-aware request fingerprinting
+- Update wrangler.toml with KV namespace bindings
+```
+
+**Good - Separate commits for different tasks:**
+```
+Commit 1: "Implement environment detection system"
+Commit 2: "Add phone validation error handling"
+Commit 3: "Update deployment configuration"
+```
+
+**Avoid - Mixed unrelated changes:**
+```
+❌ "Update rate limiting, fix CORS, add docs, refactor types"
+```

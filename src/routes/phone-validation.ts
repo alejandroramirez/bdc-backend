@@ -1,7 +1,7 @@
 import { createRoute, z } from '@hono/zod-openapi'
 import { env } from 'hono/adapter'
 import { HTTPException } from 'hono/http-exception'
-import { rateLimiter } from '../middleware/rate-limiter'
+import { createWidgetSecureRateLimiter } from '../middleware/advanced-rate-limiter'
 import * as HttpStatusCodes from 'stoker/http-status-codes'
 import { jsonContent } from 'stoker/openapi/helpers'
 import type { StatusCode, ContentfulStatusCode } from 'hono/utils/http-status'
@@ -151,27 +151,17 @@ export const getCorsConfig = () => ({
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
 })
 
-// Rate limiting middleware for phone validation
-export const phoneValidationRateLimit = async (c: any, next: any) => {
-  // Get environment context for different limits
-  const { ENVIRONMENT } = env<{ ENVIRONMENT: 'development' | 'staging' | 'production' }>(c)
-  const isDevelopment = ENVIRONMENT === 'development'
+// Advanced rate limiting middleware for phone validation with widget support
+export const phoneValidationRateLimit = (c: any, next: any) => {
+  // Get environment context and KV namespace
+  const { ENVIRONMENT, RATE_LIMIT_KV } = env<{ 
+    ENVIRONMENT: 'development' | 'staging' | 'production',
+    RATE_LIMIT_KV: KVNamespace 
+  }>(c)
 
-  // Create rate limiter with environment-specific limits
-  const limiter = rateLimiter({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: isDevelopment ? 100 : 10, // 10 requests per 15 minutes in production
-    skipFailedRequests: true, // Don't count failed requests (4xx/5xx) against limit
-    keyGenerator: (c) => {
-      // Use CF-Connecting-IP for accurate client identification
-      const cfConnectingIP = c.req.header('CF-Connecting-IP')
-      const xForwardedFor = c.req.header('X-Forwarded-For')?.split(',')[0]
-      const xRealIP = c.req.header('X-Real-IP')
-
-      return cfConnectingIP || xForwardedFor || xRealIP || 'unknown'
-    },
-  })
-
+  // Create widget-aware rate limiter with KV persistence
+  const limiter = createWidgetSecureRateLimiter(RATE_LIMIT_KV, ENVIRONMENT)
+  
   return limiter(c, next)
 }
 

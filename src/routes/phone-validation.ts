@@ -133,6 +133,7 @@ export const getCorsConfig = () => ({
     const developmentOrigins = [
       ...productionOrigins,
       'http://localhost:3000',
+      'http://localhost:3030',
       'http://localhost:5173',
       'http://localhost:8080',
     ]
@@ -154,14 +155,14 @@ export const getCorsConfig = () => ({
 // Advanced rate limiting middleware for phone validation with widget support
 export const phoneValidationRateLimit = (c: any, next: any) => {
   // Get environment context and KV namespace
-  const { ENVIRONMENT, RATE_LIMIT_KV } = env<{ 
+  const { ENVIRONMENT, RATE_LIMIT_KV } = env<{
     ENVIRONMENT: 'development' | 'staging' | 'production',
-    RATE_LIMIT_KV: KVNamespace 
+    RATE_LIMIT_KV: KVNamespace
   }>(c)
 
   // Create widget-aware rate limiter with KV persistence
   const limiter = createWidgetSecureRateLimiter(RATE_LIMIT_KV, ENVIRONMENT)
-  
+
   return limiter(c, next)
 }
 
@@ -193,12 +194,12 @@ export const phoneValidationHandler = async (c: any) => {
   try {
     // Call NumVerify API
     const response = await fetch(numverifyUrl)
-    
+
     if (!response.ok) {
       // Handle HTTP errors from NumVerify API
       let errorMessage = 'Failed to validate phone number'
       let statusCode = BAD_REQUEST
-      
+
       if (response.status === 401) {
         errorMessage = 'Invalid NumVerify API key'
         statusCode = UNAUTHORIZED
@@ -209,7 +210,7 @@ export const phoneValidationHandler = async (c: any) => {
         errorMessage = 'NumVerify API service unavailable'
         statusCode = INTERNAL_SERVER_ERROR
       }
-      
+
       throw new HTTPException(statusCode as ContentfulStatusCode, {
         message: errorMessage,
       })
@@ -222,7 +223,7 @@ export const phoneValidationHandler = async (c: any) => {
       // Map NumVerify error codes to appropriate HTTP status codes
       let statusCode = BAD_REQUEST
       let message = data.error.info || 'Phone number validation failed'
-      
+
       // Handle specific NumVerify error codes
       switch (data.error.code) {
         case 101: // Invalid API key
@@ -245,7 +246,7 @@ export const phoneValidationHandler = async (c: any) => {
         default:
           message = data.error.info || 'Phone number validation failed'
       }
-      
+
       throw new HTTPException(statusCode as ContentfulStatusCode, {
         message,
         cause: data,
@@ -264,7 +265,7 @@ export const phoneValidationHandler = async (c: any) => {
     if (error instanceof HTTPException) {
       throw error
     }
-    
+
     // Handle network errors and other unexpected errors
     console.error('NumVerify API error:', error)
     throw new HTTPException(INTERNAL_SERVER_ERROR as ContentfulStatusCode, {

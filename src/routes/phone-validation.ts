@@ -1,7 +1,8 @@
 import { createRoute, z } from '@hono/zod-openapi'
 import { env } from 'hono/adapter'
 import { HTTPException } from 'hono/http-exception'
-import { createWidgetSecureRateLimiter } from '../middleware/advanced-rate-limiter'
+// import { createWidgetSecureRateLimiter } from '../middleware/advanced-rate-limiter'
+import { createStandardWidgetRateLimiter } from '../middleware/standard-rate-limiter'
 import * as HttpStatusCodes from 'stoker/http-status-codes'
 import { jsonContent } from 'stoker/openapi/helpers'
 import type { StatusCode, ContentfulStatusCode } from 'hono/utils/http-status'
@@ -166,7 +167,8 @@ export const phoneValidationRateLimit = (c: any, next: any) => {
   }>(c)
 
   // Create widget-aware rate limiter with KV persistence
-  const limiter = createWidgetSecureRateLimiter(RATE_LIMIT_KV, ENVIRONMENT)
+  // const limiter = createWidgetSecureRateLimiter(RATE_LIMIT_KV, ENVIRONMENT)
+  const limiter = createStandardWidgetRateLimiter(RATE_LIMIT_KV, ENVIRONMENT)
 
   return limiter(c, next)
 }

@@ -66,7 +66,7 @@ app.get(
 )
 
 app.get('/page/about', (c) => {
-  return c.render(<h1>About me!</h1>)
+  return c.render(<h1>a page</h1>)
 })
 
 export default app

@@ -2,7 +2,9 @@
   "name": "bdc-backend",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "vite dev",
+    "dev:wrangler": "wrangler dev",
+    "dev:full": "npm run build && wrangler dev",
     "build": "npm run typecheck && vite build",
     "typecheck": "tsc --noEmit",
     "preview": "$npm_execpath run build && vite preview",

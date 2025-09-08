@@ -159,18 +159,49 @@ export const getCorsConfig = () => ({
 })
 
 // Advanced rate limiting middleware for phone validation with widget support
-export const phoneValidationRateLimit = (c: any, next: any) => {
-  // Get environment context and KV namespace
-  const { ENVIRONMENT, RATE_LIMIT_KV } = env<{
-    ENVIRONMENT: 'development' | 'staging' | 'production',
-    RATE_LIMIT_KV: KVNamespace
-  }>(c)
+export const phoneValidationRateLimit = async (c: any, next: any) => {
+  try {
+    // Detect if we're running in Vite dev mode by checking the request origin
+    const isViteDev = c.req.url.includes('localhost:5173') || c.req.url.includes('127.0.0.1:5173')
+    
+    if (isViteDev) {
+      console.log('⚠️  Rate limiting disabled - Vite dev mode detected')
+      return await next()
+    }
 
-  // Create widget-aware rate limiter with KV persistence
-  // const limiter = createWidgetSecureRateLimiter(RATE_LIMIT_KV, ENVIRONMENT)
-  const limiter = createStandardWidgetRateLimiter(RATE_LIMIT_KV, ENVIRONMENT)
+    // Get environment context and KV namespace
+    const { ENVIRONMENT, RATE_LIMIT_KV } = env<{
+      ENVIRONMENT: 'development' | 'staging' | 'production',
+      RATE_LIMIT_KV: KVNamespace
+    }>(c)
 
-  return limiter(c, next)
+    // Check if we have access to real KV namespace (Wrangler dev/production)
+    if (!RATE_LIMIT_KV) {
+      console.log('⚠️  Rate limiting disabled - no KV namespace available')
+      return await next()
+    }
+
+    // Try to test KV availability
+    try {
+      // Quick test to see if KV is working
+      await RATE_LIMIT_KV.get('test-key')
+    } catch (kvError) {
+      const errorMessage = kvError instanceof Error ? kvError.message : 'Unknown KV error'
+      console.log('⚠️  Rate limiting disabled - KV not accessible:', errorMessage)
+      return await next()
+    }
+
+    // Create widget-aware rate limiter with KV persistence
+    // const limiter = createWidgetSecureRateLimiter(RATE_LIMIT_KV, ENVIRONMENT)
+    const limiter = createStandardWidgetRateLimiter(RATE_LIMIT_KV, ENVIRONMENT)
+
+    return await limiter(c, next)
+  } catch (error) {
+    // Fallback: skip rate limiting if there's any error (e.g., in Vite dev mode)
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    console.log('⚠️  Rate limiting disabled due to error:', errorMessage)
+    return await next()
+  }
 }
 
 // Helper function to check if response is an error

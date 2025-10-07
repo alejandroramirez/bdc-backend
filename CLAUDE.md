@@ -8,46 +8,76 @@ This is a Cloudflare Worker backend built with Hono (web framework) and TypeScri
 
 ## Development Commands
 
-- `npm install` - Install dependencies
-- `npm run dev` - Start development server using Wrangler
-- `npm run build` - Build for production (includes type checking)
-- `npm run typecheck` - Run TypeScript type checking
-- `npm run preview` - Build and preview production build locally
-- `npm run deploy` - Build and deploy to development environment
-- `npm run deploy:staging` - Build and deploy to staging environment
-- `npm run deploy:production` - Build and deploy to production environment
-- `npm run cf-typegen` - Generate TypeScript types for Cloudflare bindings
+**Note**: This project uses `pnpm` as the package manager.
+
+- `pnpm install` - Install dependencies
+- `pnpm run dev` - Start development server using Vite (hot reload)
+- `pnpm run dev:wrangler` - Start development server using Wrangler
+- `pnpm run dev:full` - Build and start Wrangler dev server
+- `pnpm run build` - Build for production (includes type checking)
+- `pnpm run typecheck` - Run TypeScript type checking
+- `pnpm run preview` - Build and preview production build locally
+- `pnpm run deploy` - Build and deploy to development environment
+- `pnpm run deploy:staging` - Build and deploy to staging environment
+- `pnpm run deploy:production` - Build and deploy to production environment
+- `pnpm run cf-typegen` - Generate TypeScript types for Cloudflare bindings
+- `pnpm run lint` - Run ESLint
+- `pnpm run lint:fix` - Run ESLint with auto-fix
+- `pnpm run format` - Format code with Prettier
+- `pnpm run format:check` - Check code formatting
 
 ## Architecture
 
 ### Core Stack
 
 - **Runtime**: Cloudflare Workers
-- **Framework**: Hono for web server functionality
+- **Framework**: Hono with OpenAPI/Zod validation (@hono/zod-openapi)
 - **Build Tool**: Vite with Cloudflare plugin
-- **Styling**: Plain CSS with SSR support via vite-ssr-components
-- **JSX**: Hono's JSX renderer for server-side rendering
+- **Package Manager**: pnpm
+- **API Documentation**: Swagger UI (available at `/docs`)
+- **Rate Limiting**: @hono-rate-limiter/cloudflare with KV persistence
+- **Validation**: Zod schemas for request/response validation
 
 ### Key Files
 
-- `src/index.tsx` - Main application entry point, defines routes using Hono
-- `src/renderer.tsx` - JSX renderer configuration for HTML document structure  
-- `src/style.css` - Application styles
-- `wrangler.toml` - Cloudflare Workers configuration with environment settings
+- `src/index.tsx` - Main application entry point with OpenAPI Hono setup
+- `src/routes/phone-validation.ts` - Phone validation API endpoint with NumVerify integration
+- `src/middleware/standard-rate-limiter.ts` - Standard rate limiting middleware
+- `wrangler.toml` - Cloudflare Workers configuration with environment settings and KV bindings
 - `vite.config.ts` - Vite configuration with Cloudflare and SSR plugins
 - `worker-configuration.d.ts` - TypeScript bindings for Cloudflare environment variables
+- `.env.example` - Sample environment variables file
 
 ### Project Structure
 
 ```
 src/
-├── index.tsx     # Main Hono app with routes
-├── renderer.tsx  # JSX renderer for HTML document structure
-└── style.css     # Application styles
+├── index.tsx                        # Main OpenAPI Hono app with routes
+├── routes/
+│   └── phone-validation.ts          # Phone validation endpoint with NumVerify
+├── middleware/
+│   └── standard-rate-limiter.ts     # Rate limiting middleware
 public/
-├── favicon.ico   # Site favicon
-└── .assetsignore # Asset ignore configuration
+├── favicon.ico                      # Site favicon
+└── .assetsignore                    # Asset ignore configuration
 ```
+
+## API Endpoints
+
+### Available Endpoints
+
+- `GET /` - API information and available endpoints
+- `GET /docs` - Swagger UI documentation
+- `GET /openapi.json` - OpenAPI specification
+- `GET /api/validate-phone` - Phone validation endpoint (requires `number` and `country_code` query params)
+
+### Phone Validation API
+
+The phone validation endpoint integrates with NumVerify API:
+- Requires `NUMVERIFY_API_KEY` environment variable
+- Rate limited using Cloudflare KV storage
+- CORS configured for biodentalcare.com (and localhost in development)
+- Returns simplified response: `{ "valid": boolean }`
 
 ## Cloudflare Workers Integration
 
@@ -57,6 +87,8 @@ The project uses Cloudflare Workers environments for different deployment stages
 - **Development** (default): Local development with `wrangler dev`
 - **Staging**: `wrangler deploy --env staging`
 - **Production**: `wrangler deploy --env production`
+
+Each environment has its own KV namespace for rate limiting.
 
 ### Environment Detection
 
@@ -71,28 +103,49 @@ const isDevelopment = c.env.ENVIRONMENT === 'development'
 When working with Cloudflare bindings, use the generated types:
 
 ```typescript
-const app = new Hono<{ Bindings: CloudflareBindings }>()
+const app = new OpenAPIHono<{ Bindings: CloudflareBindings }>()
 ```
 
-Run `npm run cf-typegen` after modifying `wrangler.toml` to regenerate binding types.
+Run `pnpm run cf-typegen` after modifying `wrangler.toml` to regenerate binding types.
+
+### KV Namespaces
+
+The project uses Cloudflare KV for rate limiting:
+- `RATE_LIMIT_KV` - Stores rate limit data per widget/origin
 
 ## Development Notes
 
-- JSX components are rendered server-side using Hono's JSX renderer
-- CSS is loaded via the ViteClient component in the renderer
-- The build outputs to `dist/` for the client and `dist-server/` for the worker
+### Setup
+
+1. Copy `.env.example` to `.dev.vars` for local development
+2. Add your `NUMVERIFY_API_KEY` to `.dev.vars`
+3. Run `pnpm install` to install dependencies
+4. Run `pnpm run dev` for hot-reload development with Vite
 
 ### Environment Variables
 
-- **Local Development**: Define variables in `.dev.vars` file
+- **Local Development**: Define variables in `.dev.vars` file (copy from `.env.example`)
 - **Production**: Set secrets using `wrangler secret put` or Cloudflare dashboard
 - **Environment Detection**: Use `c.env.ENVIRONMENT` instead of `process.env.NODE_ENV`
+
+Required environment variables:
+- `NUMVERIFY_API_KEY` - API key for NumVerify phone validation service
+- `ENVIRONMENT` - Automatically set by wrangler.toml (development/staging/production)
 
 ### Secret Management
 
 - Never commit `.dev.vars` files to git (already in .gitignore)
-- Use environment-specific files: `.dev.vars.staging`, `.dev.vars.production`
-- For sensitive data, use `wrangler secret put` command instead of plain variables
+- Use `.env.example` as a template for required variables
+- For production secrets, use `wrangler secret put NUMVERIFY_API_KEY` command
+
+### Rate Limiting
+
+Rate limiting is automatically disabled in these scenarios:
+- When running in Vite dev mode (localhost:5173)
+- When KV namespace is not available
+- When KV operations fail
+
+This allows for seamless local development without needing KV setup.
 
 ## Git Commit Guidelines
 
